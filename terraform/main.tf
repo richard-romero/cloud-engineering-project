@@ -73,3 +73,40 @@ resource "aws_route_table_association" "public_assoc" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
 }
+
+resource "aws_security_group" "web_sg" {
+  vpc_id = aws_vpc.main.id
+
+  # SSH access
+  ingress {
+    description = "SSH from my IP"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["24.170.200.152/32"]
+  }
+
+  # App port 
+  ingress {
+    description = "App traffic"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Outbound
+  egress {
+    description = "Allow all outbound"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "web-sg"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
