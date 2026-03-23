@@ -12,8 +12,7 @@ output "public_subnet_id" {
 }
 
 output "private_subnet_id" {
-  description = "Private subnet ID"
-  value       = aws_subnet.private.id
+  value = aws_subnet.private.id
 }
 
 output "security_group_id" {
@@ -22,4 +21,12 @@ output "security_group_id" {
 
 output "instance_profile_name" {
   value = aws_iam_instance_profile.ec2_profile.name
+}
+
+output "instance_public_ip" {
+  value = aws_instance.web.public_ip
+}
+
+output "instance_id" {
+  value = aws_instance.web.id
 }

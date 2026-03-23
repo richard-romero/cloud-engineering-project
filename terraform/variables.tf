@@ -15,3 +15,13 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "instance_type" {
+  description = "ec2 instance type"
+  type        = string
+  default     = "t3.micro"
+}
+
+variable "key_pair_name" {
+  description = "Existing AWS key pair name"
+}
