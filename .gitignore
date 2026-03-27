@@ -4,3 +4,7 @@
 terraform.tfvars
 .env
 .venv/
+__pychache__/
+*.pyc
+*.pyo
+*.pyd
