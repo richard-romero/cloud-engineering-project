@@ -33,7 +33,9 @@ def get_terraform_outputs() -> dict:
             "ssh_command": outputs["ssh_command"]["value"],
         }
     except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to fetch Terraform outputs: {e}")
+        raise RuntimeError(f"Failed to fetch Terraform outputs: {e}") from e
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        raise RuntimeError(f"Terraform outputs are invalid or incomplete: {e}") from e
 
 class SSHClient:
     """A context-managed SSH client wrapper using Paramiko."""
@@ -76,14 +78,35 @@ class SSHClient:
             f"Unable to load SSH private key from {self.key_path}: {last_error}"
         )
 
-    def run(self, command: str) -> Tuple[str, str]:
+    def run(self, command: str, check: bool = False) -> Tuple[str, str]:
         """Execute a command on the remote host and return (stdout, stderr)."""
         if not self.client:
             raise RuntimeError("SSH Client is not connected. Call .connect() first.")
 
-        stdin, stdout, stderr = self.client.exec_command(command)
+        _, stdout, stderr = self.client.exec_command(command)
 
-        return stdout.read().decode(), stderr.read().decode()
+        out = stdout.read().decode()
+        err = stderr.read().decode()
+        exit_code = stdout.channel.recv_exit_status()
+
+        if check and exit_code != 0:
+            raise RuntimeError(
+                f"Remote command failed with exit code {exit_code}: {command}\n{err.strip()}"
+            )
+
+        return out, err
+
+    def upload(self, local_path: str, remote_path: str) -> None:
+        """Upload a local file to the remote host over SFTP."""
+        if not self.client:
+            raise RuntimeError("SSH Client is not connected. Call .connect() first.")
+
+        source_path = Path(local_path).expanduser().resolve()
+        if not source_path.exists() or not source_path.is_file():
+            raise FileNotFoundError(f"Local file not found: {source_path}")
+
+        with self.client.open_sftp() as sftp:
+            sftp.put(str(source_path), remote_path)
     
     def close(self) -> None:
         """Close the SSH connection safely."""
