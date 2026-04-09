@@ -5,8 +5,14 @@ log() {
     echo "[BOOTSTRAP] $1"
 }
 
-log "Ensuring Docker running..."
-sudo systemctl start docker
+log "Ensuring Docker installed and running..."
+
+if ! sudo systemctl list-unit-files | grep -q '^docker\.service'; then
+    log "Docker service not found. Installing Docker..."
+    sudo dnf install -y docker
+fi
+
+sudo systemctl enable --now docker
 
 log "Configuring firewall..."
 
