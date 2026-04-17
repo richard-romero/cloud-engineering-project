@@ -1,21 +1,23 @@
-import subprocess
 import json
-import yaml
-import paramiko
+import subprocess
 from pathlib import Path
-from typing import Tuple
+
+import paramiko
+import yaml
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 TERRAFORM_DIR = BASE_DIR / "terraform"
 CONFIG_PATH = BASE_DIR / "cloudctl/config/settings.yaml"
 
+
 def load_settings() -> dict:
-    """Load application settings from the YAML config file."""
-    with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
+    """Load settings from config/settings.yaml."""
+    with open(CONFIG_PATH, "r", encoding="utf-8") as config_file:
+        return yaml.safe_load(config_file)
+
 
 def get_terraform_outputs() -> dict:
-    """Retrieve Terraform outputs as a dictionary."""
+    """Read Terraform outputs and return fields used by command modules."""
     try:
         result = subprocess.run(
             ["terraform", "output", "-json"],
@@ -24,27 +26,33 @@ def get_terraform_outputs() -> dict:
             text=True,
             check=True,
         )
-        outputs = json.loads(result.stdout)
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(f"Failed to fetch Terraform outputs: {error}") from error
 
+    try:
+        raw_outputs = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Terraform output is not valid JSON: {error}") from error
+
+    try:
         return {
-            "public_ip": outputs["instance_public_ip"]["value"],
-            "instance_id": outputs["instance_id"]["value"],
-            "region": outputs["configured_region"]["value"],
-            "ssh_command": outputs["ssh_command"]["value"],
+            "public_ip": raw_outputs["instance_public_ip"]["value"],
+            "instance_id": raw_outputs["instance_id"]["value"],
+            "region": raw_outputs["configured_region"]["value"],
+            "ssh_command": raw_outputs["ssh_command"]["value"],
         }
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"Failed to fetch Terraform outputs: {e}") from e
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        raise RuntimeError(f"Terraform outputs are invalid or incomplete: {e}") from e
+    except (KeyError, TypeError) as error:
+        raise RuntimeError(f"Terraform outputs are missing required fields: {error}") from error
+
 
 class SSHClient:
     """A context-managed SSH client wrapper using Paramiko."""
-    
+
     def __init__(self, host: str, key_path: str, user: str = "ec2-user") -> None:
         self.host = host
         self.user = user
         self.key_path = str(Path(key_path).expanduser())
-        self.client = None
+        self.client: paramiko.SSHClient | None = None
 
     def connect(self) -> None:
         """Establish the SSH connection to the remote host."""
@@ -61,16 +69,16 @@ class SSHClient:
 
     def _load_private_key(self):
         """Load the SSH private key using a supported Paramiko key class."""
-        key_loaders = (
+        key_types = (
             paramiko.Ed25519Key,
             paramiko.RSAKey,
             paramiko.ECDSAKey,
         )
 
         last_error = None
-        for key_loader in key_loaders:
+        for key_type in key_types:
             try:
-                return key_loader.from_private_key_file(self.key_path)
+                return key_type.from_private_key_file(self.key_path)
             except (paramiko.SSHException, ValueError, TypeError) as error:
                 last_error = error
 
@@ -78,23 +86,23 @@ class SSHClient:
             f"Unable to load SSH private key from {self.key_path}: {last_error}"
         )
 
-    def run(self, command: str, check: bool = False) -> Tuple[str, str]:
+    def run(self, command: str, check: bool = False) -> tuple[str, str]:
         """Execute a command on the remote host and return (stdout, stderr)."""
-        if not self.client:
+        if self.client is None:
             raise RuntimeError("SSH Client is not connected. Call .connect() first.")
 
         _, stdout, stderr = self.client.exec_command(command)
 
-        out = stdout.read().decode()
-        err = stderr.read().decode()
+        stdout_text = stdout.read().decode()
+        stderr_text = stderr.read().decode()
         exit_code = stdout.channel.recv_exit_status()
 
         if check and exit_code != 0:
             raise RuntimeError(
-                f"Remote command failed with exit code {exit_code}: {command}\n{err.strip()}"
+                f"Remote command failed with exit code {exit_code}: {command}\n{stderr_text}"
             )
 
-        return out, err
+        return stdout_text, stderr_text
 
     def upload(self, local_path: str, remote_path: str) -> None:
         """Upload a local file to the remote host over SFTP."""
